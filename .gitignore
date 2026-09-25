@@ -1,0 +1,25 @@
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# local test artefacts
+.playwright-mcp/
+*.log
+hyperslice-*.png
+cell600.json
+
+# python
+__pycache__/
+*.pyc
+
+# never commit (see GITHUB.md rule 0)
+.env
+*.key
+*.pem
+*secret*
+*token*
+*credential*
+session.json
