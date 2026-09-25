@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HYPERSLICE — a true 4D renderer</title>
+<style>
+  :root{
+    --bg:#07080c;
+    --panel:rgba(16,18,26,0.82);
+    --line:rgba(255,255,255,0.10);
+    --txt:#e8eaf2;
+    --dim:#8b91a6;
+    --dimmer:#5d6379;
+    --cool:#5aa0f0;
+    --hot:#ff7a3c;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--txt); font-family:var(--sans);
+    overflow:hidden; -webkit-font-smoothing:antialiased;
+  }
+  #gl{position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:grab}
+  #gl:active{cursor:grabbing}
+
+  #panel{
+    position:fixed; top:18px; left:18px; width:310px; max-height:calc(100vh - 36px);
+    background:var(--panel); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+    border:1px solid var(--line); border-radius:14px;
+    padding:16px 16px 14px; overflow-y:auto; overscroll-behavior:contain;
+    box-shadow:0 18px 50px rgba(0,0,0,0.55);
+  }
+  #panel::-webkit-scrollbar{width:8px}
+  #panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:4px}
+
+  h1{font-size:15px; letter-spacing:.22em; font-weight:600; margin-bottom:3px}
+  .sub{font-size:10.5px; color:var(--dimmer); letter-spacing:.06em; line-height:1.55; margin-bottom:14px}
+
+  .grp{margin-bottom:13px}
+  .grp-h{
+    font-size:9.5px; letter-spacing:.17em; color:var(--dim); text-transform:uppercase;
+    margin-bottom:7px; display:flex; align-items:center; gap:7px;
+  }
+  .grp-h::after{content:"";flex:1;height:1px;background:var(--line)}
+  .grp-h.warn{color:var(--hot)}
+  .grp-h.warn::after{background:linear-gradient(90deg,rgba(255,122,60,.42),transparent)}
+
+  .row{display:flex; align-items:center; gap:9px; margin-bottom:5px}
+  .row label{font-family:var(--mono); font-size:10.5px; color:var(--dim); width:26px; flex:none}
+  .row.w4 label{color:var(--hot)}
+  .row output{font-family:var(--mono); font-size:10px; color:var(--dimmer); width:42px; text-align:right; flex:none}
+
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; flex:1; height:16px; background:transparent; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px; background:rgba(255,255,255,.14); border-radius:2px}
+  input[type=range]::-moz-range-track{height:2px; background:rgba(255,255,255,.14); border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:11px; height:11px; border-radius:50%;
+    background:var(--cool); margin-top:-4.5px; border:none;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--cool);border:none}
+  input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.25); box-shadow:0 0 0 5px rgba(90,160,240,.16)}
+  .row.w4 input[type=range]::-webkit-slider-thumb{background:var(--hot)}
+  .row.w4 input[type=range]::-moz-range-thumb{background:var(--hot)}
+  .row.w4:hover input[type=range]::-webkit-slider-thumb{box-shadow:0 0 0 5px rgba(255,122,60,.18)}
+
+  select{
+    width:100%; background:rgba(255,255,255,.05); color:var(--txt);
+    border:1px solid var(--line); border-radius:7px; padding:7px 9px;
+    font-family:var(--sans); font-size:12px; cursor:pointer; outline:none;
+  }
+  select:focus{border-color:rgba(90,160,240,.55)}
+  option{background:#12141c}
+
+  .btns{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  button{
+    background:rgba(255,255,255,.05); color:var(--txt); border:1px solid var(--line);
+    border-radius:7px; padding:7px 4px; font-family:var(--sans); font-size:10.5px;
+    cursor:pointer; letter-spacing:.02em; transition:background .13s ease, border-color .13s ease;
+  }
+  button:hover{background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.2)}
+  button.on{background:rgba(255,122,60,.16); border-color:rgba(255,122,60,.5); color:#ffb083}
+
+  .note{
+    font-size:10px; color:var(--dimmer); line-height:1.6; margin-top:11px;
+    padding-top:11px; border-top:1px solid var(--line);
+  }
+  .note b{color:var(--dim); font-weight:600}
+
+  #hud{
+    position:fixed; right:18px; bottom:16px; text-align:right;
+    font-family:var(--mono); font-size:10px; color:var(--dimmer); line-height:1.7;
+    pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.8);
+  }
+  #hud .k{color:var(--dim)}
+
+  #err{
+    position:fixed; inset:0; display:none; place-items:center; padding:30px;
+    background:var(--bg); color:#ff8a6a; font-family:var(--mono); font-size:12px;
+    white-space:pre-wrap; overflow:auto; line-height:1.6; z-index:50;
+  }
+
+  @media (max-width:760px){
+    #panel{
+      top:auto; bottom:0; left:0; right:0; width:auto; border-radius:14px 14px 0 0;
+      max-height:52vh; padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    }
+    #hud{bottom:auto; top:14px; right:14px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<div id="panel">
+  <h1>HYPERSLICE</h1>
+  <div class="sub">
+    Every object below lives in four spatial dimensions.<br>
+    You are seeing its 3D cross-section — the part<br>
+    that currently intersects our space.
+  </div>
+
+  <div class="grp">
+    <div class="grp-h">Object</div>
+    <select id="obj">
+      <option value="0">Glome — the 4-sphere</option>
+      <option value="1" selected>Tesseract — the 4-cube</option>
+      <option value="2">Duocylinder — disk × disk</option>
+      <option value="3">24-cell — no 3D analogue</option>
+      <option value="4">Quaternion Julia set</option>
+    </select>
+  </div>
+
+  <div class="grp">
+    <div class="grp-h">Rotation · ordinary</div>
+    <div class="row"><label>XY</label><input type="range" id="rXY" min="-180" max="180" step="0.5" value="0"><output id="oXY">0°</output></div>
+    <div class="row"><label>XZ</label><input type="range" id="rXZ" min="-180" max="180" step="0.5" value="0"><output id="oXZ">0°</output></div>
+    <div class="row"><label>YZ</label><input type="range" id="rYZ" min="-180" max="180" step="0.5" value="0"><output id="oYZ">0°</output></div>
+  </div>
+
+  <div class="grp">
+    <div class="grp-h warn">Rotation · into the 4th</div>
+    <div class="row w4"><label>XW</label><input type="range" id="rXW" min="-180" max="180" step="0.5" value="0"><output id="oXW">0°</output></div>
+    <div class="row w4"><label>YW</label><input type="range" id="rYW" min="-180" max="180" step="0.5" value="0"><output id="oYW">0°</output></div>
+    <div class="row w4"><label>ZW</label><input type="range" id="rZW" min="-180" max="180" step="0.5" value="0"><output id="oZW">0°</output></div>
+  </div>
+
+  <div class="grp">
+    <div class="grp-h">Slice position</div>
+    <div class="row w4"><label>W</label><input type="range" id="rW" min="-2" max="2" step="0.005" value="0"><output id="oW">0.00</output></div>
+  </div>
+
+  <div class="grp" id="jgrp" style="display:none">
+    <div class="grp-h">Julia seed <span style="font-family:var(--mono);text-transform:none;letter-spacing:0">c</span></div>
+    <div class="row"><label>c₁</label><input type="range" id="jx" min="-1" max="1" step="0.005" value="-0.2"><output id="ojx">-0.20</output></div>
+    <div class="row"><label>c₂</label><input type="range" id="jy" min="-1" max="1" step="0.005" value="0.6"><output id="ojy">0.60</output></div>
+    <div class="row"><label>c₃</label><input type="range" id="jz" min="-1" max="1" step="0.005" value="0.2"><output id="ojz">0.20</output></div>
+    <div class="row"><label>c₄</label><input type="range" id="jw" min="-1" max="1" step="0.005" value="0.2"><output id="ojw">0.20</output></div>
+  </div>
+
+  <div class="grp">
+    <div class="grp-h">Render</div>
+    <div class="row"><label>RES</label><input type="range" id="rRes" min="0.35" max="1" step="0.05" value="0.8"><output id="oRes">0.80</output></div>
+    <div class="btns">
+      <button id="bAuto">▶ Turn through W</button>
+      <button id="bReset">Reset</button>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Drag</b> to orbit · <b>scroll</b> to zoom · <b>space</b> to turn<br><br>
+    Warm surfaces are tilting <b>out of our universe</b> — their
+    normal points along W. Push XW far enough and the object
+    leaves 3-space entirely and the screen goes empty.
+    That is correct. Keep turning; it comes back.
+  </div>
+</div>
+
+<div id="hud">
+  <div><span class="k">fps</span> <span id="hFps">—</span></div>
+  <div><span class="k">buf</span> <span id="hRes">—</span></div>
+  <div id="hDiag"></div>
+</div>
+
+<div id="err"></div>
+
+<script type="x-shader/x-vertex" id="vs">#version 300 es
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+</script>
+
+<script type="x-shader/x-fragment" id="fs">#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2  uRes;
+uniform mat4  uRot;   // 4D orientation: product of six Givens rotations
+uniform float uW;     // which 3-space slice of 4D we inhabit
+uniform int   uObj;
+uniform vec4  uJc;    // quaternion Julia seed
+uniform vec3  uRo;    // camera position (in our 3-space)
+
+const float FAR = 22.0;
+
+/* ---------- quaternion arithmetic ---------- */
+// q = (real, i, j, k);  q^2 = (a*a - |v|^2, 2a*v)
+vec4 qsqr(vec4 q){
+  return vec4(q.x*q.x - dot(q.yzw, q.yzw), 2.0 * q.x * q.yzw);
+}
+
+/* ---------- 4D signed distance functions ----------
+   Each returns the distance from a point in R^4 to a genuinely
+   four-dimensional surface. Nothing here is a 3D object in disguise. */
+
+// Glome: the 4-sphere. Exact.
+float sdGlome(vec4 p){ return length(p) - 1.25; }
+
+// Tesseract: the 4-cube. Exact (4D generalisation of the box SDF).
+float sdTesseract(vec4 p){
+  vec4 d = abs(p) - vec4(0.92);
+  return length(max(d, 0.0)) + min(max(max(d.x, d.y), max(d.z, d.w)), 0.0);
+}
+
+// Duocylinder: disk(x,y) x disk(z,w). Has no 3D analogue at all.
+// Exact: it is a "box" in the two radial coordinates.
+float sdDuocyl(vec4 p){
+  vec2 d = vec2(length(p.xy) - 0.92, length(p.zw) - 0.92);
+  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+}
+
+// 24-cell: the regular 4-polytope with no 3D counterpart.
+// It is exactly the intersection of a tesseract with a 16-cell,
+// which collapses to max(Linf, L1/2) - 1.  Convex => safe underestimate.
+float sd24Cell(vec4 p){
+  const float s = 1.32;
+  vec4 q = p / s;
+  float linf = max(max(abs(q.x), abs(q.y)), max(abs(q.z), abs(q.w)));
+  float l1h  = 0.5 * (abs(q.x) + abs(q.y) + abs(q.z) + abs(q.w));
+  return (max(linf, l1h) - 1.0) * s;
+}
+
+// Quaternion Julia set: z <- z^2 + c over the quaternions.
+// Natively 4D - it cannot be expressed in fewer dimensions.
+// Distance estimate: |z|*log|z| / |z'|   (Hubbard-Douady potential)
+float sdJulia(vec4 p){
+  vec4 z = p;
+  float dz2 = 1.0;          // |z'|^2
+  float m2  = dot(z, z);
+  for(int i = 0; i < 12; i++){
+    dz2 *= 4.0 * m2;        // |2z|^2 * |z'|^2
+    z = qsqr(z) + uJc;
+    m2 = dot(z, z);
+    if(m2 > 6.0) break;
+  }
+  return 0.25 * sqrt(m2 / dz2) * log(max(m2, 1e-9));
+}
+
+float sdf4(vec4 p){
+  if(uObj == 0) return sdGlome(p);
+  if(uObj == 1) return sdTesseract(p);
+  if(uObj == 2) return sdDuocyl(p);
+  if(uObj == 3) return sd24Cell(p);
+  return sdJulia(p);
+}
+
+/* ---------- the slice ----------
+   Lift a point of our 3-space to 4D at height w, then rotate all of
+   4-space. Because uRot is orthogonal it preserves distance, so the
+   4D distance is a safe lower bound on the distance within the slice.
+   Sphere tracing therefore never overshoots: the cross-section is exact. */
+vec4 lift(vec3 p){ return uRot * vec4(p, uW); }
+float map(vec3 p){ return sdf4(lift(p)); }
+
+// Gradient in 4D, expressed back in world axes:
+// d/dp [ sdf4(R p) ] = R^T * grad(sdf4)
+vec4 grad4(vec3 p){
+  const float h = 0.0016;
+  vec4 q = lift(p);
+  float b = sdf4(q);
+  vec4 g = vec4(
+    sdf4(q + vec4(h,0,0,0)) - b,
+    sdf4(q + vec4(0,h,0,0)) - b,
+    sdf4(q + vec4(0,0,h,0)) - b,
+    sdf4(q + vec4(0,0,0,h)) - b);
+  return g * uRot;                 // == transpose(uRot) * g
+}
+
+float march(vec3 ro, vec3 rd, out float steps){
+  float t = 0.0;
+  float k = (uObj == 4) ? 0.45 : 0.9;   // Julia DE is an estimate, tread lighter
+  steps = 0.0;
+  for(int i = 0; i < 200; i++){
+    steps += 1.0;
+    float d = map(ro + rd * t);
+    if(d < 0.0007 * t + 0.0004) return t;
+    t += d * k;
+    if(t > FAR) break;
+  }
+  return -1.0;
+}
+
+float softShadow(vec3 ro, vec3 rd){
+  float res = 1.0, t = 0.035;
+  for(int i = 0; i < 34; i++){
+    float h = map(ro + rd * t);
+    res = min(res, 9.0 * h / t);
+    t += clamp(h, 0.022, 0.32);
+    if(res < 0.004 || t > 7.0) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+float ambOcc(vec3 p, vec3 n){
+  float occ = 0.0, sca = 1.0;
+  for(int i = 0; i < 5; i++){
+    float hr = 0.02 + 0.11 * float(i);
+    occ += (hr - map(p + n * hr)) * sca;
+    sca *= 0.74;
+  }
+  return clamp(1.0 - 2.1 * occ, 0.0, 1.0);
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+
+  // camera basis, looking at the origin
+  vec3 ww = normalize(-uRo);
+  vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
+  vec3 vv = cross(uu, ww);
+  vec3 rd = normalize(uv.x * uu + uv.y * vv + 1.7 * ww);
+
+  vec3 bg = mix(vec3(0.036, 0.042, 0.058), vec3(0.006, 0.007, 0.013),
+                clamp(length(uv) * 0.85, 0.0, 1.0));
+  vec3 col = bg;
+
+  float steps;
+  float t = march(uRo, rd, steps);
+
+  if(t > 0.0){
+    vec3 p  = uRo + rd * t;
+    vec4 n4 = grad4(p);
+    float g4 = length(n4);
+    n4 = (g4 > 1e-7) ? n4 / g4 : vec4(0.0, 1.0, 0.0, 0.0);
+
+    vec3  n3 = n4.xyz;
+    float l3 = length(n3);
+    n3 = (l3 > 1e-5) ? n3 / l3 : vec3(0.0, 1.0, 0.0);
+
+    // how steeply this surface leaves our 3-space
+    float esc = clamp(abs(n4.w), 0.0, 1.0);
+
+    vec3 cool = vec3(0.30, 0.56, 0.94);
+    vec3 hot  = vec3(1.00, 0.44, 0.17);
+    vec3 base = mix(cool, hot, smoothstep(0.12, 0.92, esc));
+
+    vec3  lig = normalize(vec3(0.58, 0.76, 0.32));
+    float dif = clamp(dot(n3, lig), 0.0, 1.0);
+    float sh  = softShadow(p + n3 * 0.004, lig);
+    float occ = ambOcc(p, n3);
+    float amb = 0.5 + 0.5 * n3.y;
+    float fre = pow(clamp(1.0 + dot(rd, n3), 0.0, 1.0), 3.0);
+
+    col  = base * (0.20 * amb * occ + 1.10 * dif * sh);
+    col += vec3(0.42, 0.62, 1.0) * fre * 0.38 * occ;
+
+    vec3 hv = normalize(lig - rd);
+    col += vec3(1.0) * pow(clamp(dot(n3, hv), 0.0, 1.0), 44.0) * dif * sh * 0.55;
+
+    // surfaces nearly tangent to our slice are about to vanish - let them burn
+    col += hot * pow(smoothstep(0.72, 1.0, esc), 2.0) * 1.25;
+
+    col = mix(col, bg, smoothstep(6.0, FAR, t));
+  }
+
+  col = col / (1.0 + col);                 // tonemap
+  col = pow(max(col, 0.0), vec3(0.4545));  // gamma
+  col += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.015;
+
+  fragColor = vec4(col, 1.0);
+}
+</script>
+
+<script>
+(function(){
+"use strict";
+
+var S = { ok:false, stage:"init", msg:"" };
+window.__hyperslice = S;
+
+function die(stage, msg){
+  S.ok = false; S.stage = stage; S.msg = msg;
+  document.title = "HYPERSLICE FAIL: " + stage;
+  var e = document.getElementById("err");
+  e.style.display = "grid";
+  e.textContent = "HYPERSLICE failed at: " + stage + "\n\n" + msg;
+  var d = document.getElementById("hDiag");
+  if(d) d.textContent = "FAIL " + stage;
+  console.error("[hyperslice] " + stage + "\n" + msg);
+}
+
+var cv = document.getElementById("gl");
+var gl = cv.getContext("webgl2", { antialias:false, alpha:false, powerPreference:"high-performance" });
+if(!gl){ die("webgl2", "This browser did not provide a WebGL2 context."); return; }
+
+/* ---------------- shader plumbing ---------------- */
+function compile(type, src, label){
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    die("compile:" + label, gl.getShaderInfoLog(s) || "(no log)");
+    return null;
+  }
+  return s;
+}
+
+var vsSrc = document.getElementById("vs").textContent.trim();
+var fsSrc = document.getElementById("fs").textContent.trim();
+var vs = compile(gl.VERTEX_SHADER, vsSrc, "vertex");     if(!vs) return;
+var fs = compile(gl.FRAGMENT_SHADER, fsSrc, "fragment"); if(!fs) return;
+
+var prog = gl.createProgram();
+gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+  die("link", gl.getProgramInfoLog(prog) || "(no log)"); return;
+}
+gl.useProgram(prog);
+
+var U = {};
+["uRes","uRot","uW","uObj","uJc","uRo"].forEach(function(n){
+  U[n] = gl.getUniformLocation(prog, n);
+});
+
+var vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+
+/* ---------------- 4D rotation algebra ----------------
+   In 3D you rotate about an axis. In 4D there are no axes of
+   rotation - only PLANES. R^4 has six coordinate planes, hence six
+   independent rotations. XY, XZ and YZ are the familiar ones. XW, YW
+   and ZW have no counterpart below four dimensions.
+   Matrices are column-major: m[col*4 + row], matching uniformMatrix4fv. */
+
+function ident(){
+  return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+}
+
+// Givens rotation by angle t in the plane spanned by axes i and j
+function givens(i, j, t){
+  var m = ident(), c = Math.cos(t), s = Math.sin(t);
+  m[i*4 + i] =  c;
+  m[j*4 + j] =  c;
+  m[i*4 + j] =  s;   // row j, col i
+  m[j*4 + i] = -s;   // row i, col j
+  return m;
+}
+
+function mul(a, b){                       // returns a*b
+  var o = new Float32Array(16);
+  for(var c = 0; c < 4; c++)
+    for(var r = 0; r < 4; r++){
+      var v = 0;
+      for(var k = 0; k < 4; k++) v += a[k*4 + r] * b[c*4 + k];
+      o[c*4 + r] = v;
+    }
+  return o;
+}
+
+var AX = 0, AY = 1, AZ = 2, AW = 3;
+
+function buildRot(a){
+  var m = givens(AX, AY, a.xy);
+  m = mul(givens(AX, AZ, a.xz), m);
+  m = mul(givens(AY, AZ, a.yz), m);
+  m = mul(givens(AX, AW, a.xw), m);
+  m = mul(givens(AY, AW, a.yw), m);
+  m = mul(givens(AZ, AW, a.zw), m);
+  return m;
+}
+
+/* ---------------- state ---------------- */
+var DEG = Math.PI / 180;
+var st = {
+  ang:{ xy:0, xz:0, yz:0, xw:0, yw:0, zw:0 },
+  w:0, obj:1, res:0.8,
+  jc:[-0.2, 0.6, 0.2, 0.2],
+  yaw:0.72, pitch:0.30, dist:7.2,
+  auto:false
+};
+
+function el(id){ return document.getElementById(id); }
+
+var sliders = {
+  rXY:["xy","oXY"], rXZ:["xz","oXZ"], rYZ:["yz","oYZ"],
+  rXW:["xw","oXW"], rYW:["yw","oYW"], rZW:["zw","oZW"]
+};
+
+Object.keys(sliders).forEach(function(id){
+  var key = sliders[id][0], out = sliders[id][1];
+  el(id).addEventListener("input", function(){
+    st.ang[key] = parseFloat(this.value) * DEG;
+    el(out).textContent = Math.round(parseFloat(this.value)) + "°";
+  });
+});
+
+el("rW").addEventListener("input", function(){
+  st.w = parseFloat(this.value);
+  el("oW").textContent = st.w.toFixed(2);
+});
+
+el("rRes").addEventListener("input", function(){
+  st.res = parseFloat(this.value);
+  el("oRes").textContent = st.res.toFixed(2);
+  resize();
+});
+
+el("obj").addEventListener("change", function(){
+  st.obj = parseInt(this.value, 10);
+  el("jgrp").style.display = (st.obj === 4) ? "" : "none";
+});
+
+[["jx",0,"ojx"],["jy",1,"ojy"],["jz",2,"ojz"],["jw",3,"ojw"]].forEach(function(t){
+  el(t[0]).addEventListener("input", function(){
+    st.jc[t[1]] = parseFloat(this.value);
+    el(t[2]).textContent = st.jc[t[1]].toFixed(2);
+  });
+});
+
+function setAuto(v){
+  st.auto = v;
+  el("bAuto").classList.toggle("on", v);
+  el("bAuto").textContent = v ? "■ Stop" : "▶ Turn through W";
+}
+el("bAuto").addEventListener("click", function(){ setAuto(!st.auto); });
+
+el("bReset").addEventListener("click", function(){
+  st.ang = { xy:0, xz:0, yz:0, xw:0, yw:0, zw:0 };
+  st.w = 0; st.yaw = 0.72; st.pitch = 0.30; st.dist = 7.2;
+  setAuto(false);
+  Object.keys(sliders).forEach(function(id){
+    el(id).value = 0; el(sliders[id][1]).textContent = "0°";
+  });
+  el("rW").value = 0; el("oW").textContent = "0.00";
+});
+
+window.addEventListener("keydown", function(e){
+  if(e.code === "Space" && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT"){
+    e.preventDefault(); setAuto(!st.auto);
+  }
+});
+
+/* ---------------- camera ---------------- */
+var drag = null;
+cv.addEventListener("pointerdown", function(e){
+  drag = { x:e.clientX, y:e.clientY }; cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", function(e){
+  if(!drag) return;
+  st.yaw   -= (e.clientX - drag.x) * 0.006;
+  st.pitch += (e.clientY - drag.y) * 0.006;
+  st.pitch  = Math.max(-1.35, Math.min(1.35, st.pitch));
+  drag.x = e.clientX; drag.y = e.clientY;
+});
+cv.addEventListener("pointerup",     function(){ drag = null; });
+cv.addEventListener("pointercancel", function(){ drag = null; });
+cv.addEventListener("wheel", function(e){
+  e.preventDefault();
+  st.dist = Math.max(1.9, Math.min(15, st.dist * Math.exp(e.deltaY * 0.0012)));
+}, { passive:false });
+
+/* ---------------- sizing ---------------- */
+function resize(){
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, Math.round(cv.clientWidth  * dpr * st.res));
+  var h = Math.max(1, Math.round(cv.clientHeight * dpr * st.res));
+  if(cv.width !== w || cv.height !== h){
+    cv.width = w; cv.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+}
+window.addEventListener("resize", resize);
+
+/* ---------------- frame loop ---------------- */
+var last = performance.now(), acc = 0, frames = 0, drawn = 0;
+
+function wrap180(rad){ return ((rad / DEG + 180) % 360 + 360) % 360 - 180; }
+
+function frame(now){
+  var dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  if(st.auto){
+    st.ang.xw += dt * 0.42;
+    st.ang.zw += dt * 0.13;
+    var axw = wrap180(st.ang.xw), azw = wrap180(st.ang.zw);
+    el("rXW").value = axw; el("oXW").textContent = Math.round(axw) + "°";
+    el("rZW").value = azw; el("oZW").textContent = Math.round(azw) + "°";
+  }
+
+  resize();
+
+  var cp = Math.cos(st.pitch), sp = Math.sin(st.pitch);
+  var ro = [
+    st.dist * cp * Math.sin(st.yaw),
+    st.dist * sp,
+    st.dist * cp * Math.cos(st.yaw)
+  ];
+
+  gl.uniform2f(U.uRes, cv.width, cv.height);
+  gl.uniformMatrix4fv(U.uRot, false, buildRot(st.ang));
+  gl.uniform1f(U.uW, st.w);
+  gl.uniform1i(U.uObj, st.obj);
+  gl.uniform4f(U.uJc, st.jc[0], st.jc[1], st.jc[2], st.jc[3]);
+  gl.uniform3f(U.uRo, ro[0], ro[1], ro[2]);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  drawn++;
+
+  acc += dt; frames++;
+  if(acc >= 0.5){
+    el("hFps").textContent = (frames / acc).toFixed(0);
+    el("hRes").textContent = cv.width + "×" + cv.height;
+    acc = 0; frames = 0;
+  }
+
+  if(drawn === 2){
+    S.ok = true; S.stage = "running";
+    S.msg = "WebGL2 " + gl.getParameter(gl.VERSION) + " / " + cv.width + "x" + cv.height;
+    document.title = "HYPERSLICE OK";
+  }
+
+  requestAnimationFrame(frame);
+}
+
+el("jgrp").style.display = "none";
+resize();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
