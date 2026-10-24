@@ -5,6 +5,10 @@ raymarched in real time in the browser. No libraries, no build step, one HTML fi
 
 ### ▶ [Live demo — kraewon7422.github.io/hyperslice](https://kraewon7422.github.io/hyperslice/)
 
+![Three four-dimensional objects, each drawn as the 3D cross-section currently intersecting our space: the 600-cell, the tiger, and a quaternion Julia set](screenshot.png)
+
+<sub>Left to right: the **600-cell** (600 tetrahedral cells), the **tiger** (a torus of tori), and a **quaternion Julia set**. Orange marks surfaces tilting out of our 3-space along W. None of these is a 3D object — each is a slice.</sub>
+
 ---
 
 ## What this actually is
